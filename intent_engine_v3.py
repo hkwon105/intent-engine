@@ -89,78 +89,59 @@ Dependencies
     source ~/intent_env/bin/activate
 
     # Step 2 — system packages (apt)
-    # opencv and numpy come from apt to get the JetPack-linked system builds.
-    # Do NOT pip install these — the apt versions are compiled against the
-    # correct ARM64/CUDA libraries and will not conflict with torch.
+    # opencv comes from apt for the JetPack ARM64 system build.
+    # v4l-utils provides v4l2-ctl for finding the camera device index.
     sudo apt update
-    sudo apt install -y python3-opencv python3-numpy v4l-utils
+    sudo apt install -y python3-opencv v4l-utils
 
-    # Step 3 — torch (CUDA-enabled, built by NVIDIA for JetPack 6 / Python 3.10)
-    # Do NOT use `pip install torch` (x86 only) or `sudo apt install python3-torch`
-    # (Ubuntu repo build is PyTorch 1.8 with no CUDA support).
-    # The URL below is the official NVIDIA wheel for JetPack 6.x + Python 3.10.
-    pip install https://developer.download.nvidia.com/compute/redist/jp/v61/pytorch/torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl
+    # Step 3 — torch + torchvision + remaining deps (CPU build, confirmed working)
+    # Do NOT use `sudo apt install python3-torch` — the Ubuntu repo build is
+    # PyTorch 1.8 (2021) with no value for this use case.
+    # Do NOT use the NVIDIA JetPack wheel URLs — those segfault on JetPack 36.5
+    # (R36, CUDA 12.6) due to a library mismatch with libcusparseLt.
+    # torchvision==0.21.0 pins torch to 2.6.0 automatically — do not pin torch
+    # separately or you risk a version mismatch.
+    pip install torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cpu
+    pip install numpy pillow
+    # opencv-python-headless is required because the system apt opencv is not
+    # visible inside the venv. The headless build has no GUI dependencies,
+    # which is correct for a Jetson inference pipeline with no display output.
+    pip install opencv-python-headless
 
-    # Step 4 — fix missing CUDA shared library (needed by the torch wheel above)
-    # libcusparseLt.so.0 is not on the system library path by default.
-    # This exports it from the existing venv that already has it, then makes
-    # the export permanent in your shell profile.
-    export LD_LIBRARY_PATH=/home/robotics/Documents/human_robot_collab/gearbox/intentpredictionattempt4-1/.venv/lib/python3.13/site-packages/nvidia/cusparselt/lib:$LD_LIBRARY_PATH
-    echo 'export LD_LIBRARY_PATH=/home/robotics/Documents/human_robot_collab/gearbox/intentpredictionattempt4-1/.venv/lib/python3.13/site-packages/nvidia/cusparselt/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
-
-    # Step 5 — torchvision matched to torch 2.5.0a0 (build from source or skip)
-    # No pre-built ARM64 wheel exists for this exact torch pre-release.
-    # The engine only uses torchvision for resnet101 and transforms — both of
-    # which can be sourced from torch hub or timm as a fallback if needed.
-    # For now, install torchvision and accept that it may report a version
-    # mismatch warning (it will still work for our use case):
-    pip install torchvision
-
-    # Step 6 — remaining pure-Python dependencies (safe to pip install)
-    pip install pillow
-
-    # Step 7 — camera device permissions (one-time, run after connecting camera)
+    # Step 4 — camera device permissions (one-time, run after connecting camera)
     # Use v4l2-ctl to find your camera index first, then chmod the correct device.
     v4l2-ctl --list-devices
     sudo chmod 777 /dev/video4       # replace 4 with your actual index
 
-    # Step 8 — sanity check (must print True before running the engine)
-    python3 -c "import torch, cv2, numpy; print('CUDA:', torch.cuda.is_available())"
+    # Step 5 — sanity check (all four must import cleanly before running)
+    python3 -c "import torch, torchvision, cv2, numpy; print('torch:', torch.__version__); print('torchvision:', torchvision.__version__); print('cv2:', cv2.__version__); print('numpy:', numpy.__version__)"
 
     NOTES
     -----
-    · The LD_LIBRARY_PATH export in Step 4 must be run in every new terminal
-      unless you have sourced ~/.bashrc. If torch segfaults on import, this
-      export is the most likely missing step.
+    · CUDA is not available on this setup (JetPack R36.5 / CUDA 12.6) due to
+      wheel incompatibility. The engine detects this automatically and runs on
+      CPU. Inference will be slower (~2-5 Hz) but fully functional. The
+      max_infer_hz config parameter caps the rate to prevent thermal throttle.
 
     · pyrealsense2 is optional — the engine falls back to V4L2 automatically.
-      pip install does not have an ARM64 build. If you need it, use Intel's
-      apt repo (see previous attempts — GPG key issues may block this on some
-      networks, and the engine works fine without it on V4L2).
-
-    · numpy 1.x ships with JetPack 6.2.2. Do not pip install numpy on top of
-      the system version — mismatched versions cause silent dtype errors with
-      torch tensors.
+      pip install does not have an ARM64 build and the Intel apt repo GPG key
+      failed on this network. The engine works fine without it on V4L2.
 
     · The camera index (/dev/video4 above) may change if the USB port changes.
       Run `v4l2-ctl --list-devices` any time the camera moves ports to find
       the new index, then rerun the chmod with the correct number.
 
-    · If CUDA still prints False after all steps, run:
-          nvcc --version
-          cat /etc/nv_tegra_release
-      and cross-check the JetPack version against the torch wheel URL above.
-
 Usage (CLI)
 -----------
-    python3 intent_engine.py \
-        --resume_path     /home/robotics/Documents/human_robot_collab/gearbox/cnnlstm-Epoch-196-Loss-0.01737015192823795.pth \
-        --annotation_path /home/robotics/Documents/human_robot_collab/gearbox/intentpredictionattempt4-1/datasets/labels.json \
-        --n_classes        3 \
-        --sample_size      150 \
-        --sample_duration  8 \
-        --smoothing_window 3 \
-        --confidence_threshold 0.75
+    cd /home/robotics/Documents/human_robot_collab/gearbox
+    python3 intent_engine_v3.py \
+    --resume_path     /home/robotics/Documents/human_robot_collab/gearbox/cnnlstm-Epoch-196-Loss-0.01737015192823795.pth \
+    --annotation_path /home/robotics/Documents/human_robot_collab/gearbox/intentpredictionattempt4-1/datasets/labels.json \
+    --n_classes        3 \
+    --sample_size      150 \
+    --sample_duration  8 \
+    --smoothing_window 3 \
+    --confidence_threshold 0.75
 
 Usage (library)
 ---------------
@@ -263,12 +244,15 @@ class CNNLSTM(nn.Module):
         except ImportError:
             backbone = resnet101(pretrained=True)   # torchvision < 0.13
 
-        # Replace the classification head with a 300-d embedding layer
+        # Replace the classification head with a 300-d embedding layer.
+        # Checkpoint saves this as resnet.fc.0.* (Sequential, not Linear)
+        # so we use nn.Sequential here to match the saved keys exactly.
         in_features = backbone.fc.in_features
-        backbone.fc = nn.Linear(in_features, 300)
+        backbone.fc = nn.Sequential(nn.Linear(in_features, 300))
         self.resnet = backbone
 
         # --- Temporal LSTM -------------------------------------------------
+        # Checkpoint saves these as top-level lstm.*, fc1.*, fc2.* keys.
         self.lstm = nn.LSTM(input_size=300, hidden_size=256, num_layers=3,
                             batch_first=False)
         self.fc1  = nn.Linear(256, 128)
