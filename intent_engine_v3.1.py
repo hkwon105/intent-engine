@@ -9,7 +9,7 @@ Dependencies:
     pip install numpy pillow opencv-python-headless
 
 Usage:
-    python3 intent_engine.py \
+    python3 intent_engine_v3.1.py \
         --resume_path     /path/to/weights.pth \
         --annotation_path /path/to/labels.json \
         --n_classes        3 \
