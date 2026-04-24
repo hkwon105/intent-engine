@@ -4,14 +4,17 @@ intent_engine.py - Self-Contained CNN-LSTM Intent Prediction Engine
 Single file. No local imports. Ship this file + your weights (.pth)
 + your annotation JSON to the target device and run.
 
-Dependencies:
+Dependencies/Startup code:
+    work (will get you in the .disassembly venv)
+    sudo apt update
     pip install torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cpu
     pip install numpy pillow opencv-python-headless
+    sudo chmod 777 /dev/video4 (video 2 for depth sensor on real sense and 4 for rgb)
 
 Usage:
-    python3 intent_engine_v3.1.py \
-        --resume_path     /path/to/weights.pth \
-        --annotation_path /path/to/labels.json \
+    python3 /home/robotics/Documents/human_robot_collab/gearbox/intent_engine_v3.1.py \
+        --resume_path     /home/robotics/Documents/human_robot_collab/gearbox/cnnlstm-Epoch-196-Loss-0.01737015192823795.pth \
+        --annotation_path /home/robotics/Documents/human_robot_collab/gearbox/intentpredictionattempt4-1/datasets/labels.json \
         --n_classes        3 \
         --sample_size      150 \
         --sample_duration  8 \
@@ -696,3 +699,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
